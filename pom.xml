@@ -13,9 +13,15 @@
   <dependencies>
     <!-- https://mvnrepository.com/artifact/com.squareup.okhttp3/okhttp -->
     <dependency>
-        <groupId>com.squareup.okhttp3</groupId>
-        <artifactId>okhttp</artifactId>
-        <version>3.12.0</version>
+      <groupId>com.squareup.okhttp3</groupId>
+      <artifactId>okhttp</artifactId>
+      <version>3.12.0</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.uber</groupId>
+      <artifactId>jvm-profiler</artifactId>
+      <version>1.0.0</version>
     </dependency>
   </dependencies>
 
@@ -36,6 +42,12 @@
           <descriptorRefs>
             <descriptorRef>jar-with-dependencies</descriptorRef>
           </descriptorRefs>
+          <archive>
+            <manifestEntries>
+              <Agent-Class>com.uber.profiling.Agent</Agent-Class>
+              <Premain-Class>com.uber.profiling.Agent</Premain-Class>
+            </manifestEntries>
+          </archive>
         </configuration>
       </plugin>
     </plugins>
