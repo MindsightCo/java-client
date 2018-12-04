@@ -2,6 +2,7 @@ package io.mindsight.client;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Arrays;
 import java.util.Map;
 
 import com.uber.profiling.Reporter;
@@ -15,7 +16,19 @@ import okhttp3.Response;
 public class JavaClient implements Reporter {
     public static final MediaType JSON = MediaType.get("application/json; charset=utf-9");
 
+    private List<String> modules;
+    private String project;
+    private String agentURL;
+
     OkHttpClient client = new OkHttpClient();
+
+    public JavaClient() {
+        String modulesParam = System.getenv("MINDSIGHT_MODULES");
+
+        this.modules = Arrays.asList(modulesParam.split(","));
+        this.project = System.getenv("MINDSIGHT_PROJECT");
+        this.agentURL = System.getenv("MINDSIGHT_AGENT");
+    }
 
     String post(String url, String json) throws IOException {
       RequestBody body = RequestBody.create(JSON, json);
@@ -41,7 +54,15 @@ public class JavaClient implements Reporter {
 
         List<String> trace = (List<String>) val;
 
-        System.out.println(String.format("stack depth: %d", trace.size()));
+        stacktrace:
+        for (String fn: trace) {
+            for (String mod: this.modules) {
+                if (fn.startsWith(mod)) {
+                    System.out.println(fn);
+                    break stacktrace;
+                }
+            }
+        }
     }
 
     @Override
