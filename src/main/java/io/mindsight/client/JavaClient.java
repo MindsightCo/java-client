@@ -3,6 +3,7 @@ package io.mindsight.client;
 import java.io.IOException;
 import java.util.List;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Map;
 
 import com.uber.profiling.Reporter;
@@ -15,30 +16,88 @@ import okhttp3.Response;
 
 public class JavaClient implements Reporter {
     public static final MediaType JSON = MediaType.get("application/json; charset=utf-9");
+    OkHttpClient client = new OkHttpClient();
 
     private List<String> modules;
     private String project;
+    private String agentRoot;
     private String agentURL;
-
-    OkHttpClient client = new OkHttpClient();
+    private int sendAfter = 100;
+    private int numCached = 0;
+    private Map<String, Integer> samples = new HashMap<String, Integer>();
 
     public JavaClient() {
         String modulesParam = System.getenv("MINDSIGHT_MODULES");
+        String sendAfterParam = System.getenv("MINDSIGHT_SEND_AFTER");
+        this.project = System.getenv("MINDSIGHT_PROJECT");
+        this.agentRoot = System.getenv("MINDSIGHT_AGENT");
+
+        if (modulesParam == null) {
+            throw new RuntimeException("Must set MINDSIGHT_MODULES environment variable!");
+        } else if (this.project == null) {
+            throw new RuntimeException("Must set MINDSIGHT_PROJECT environment variable!");
+        } else if (this.agentRoot == null) {
+            throw new RuntimeException("Must set MINDSIGHT_AGENT environment variable!");
+        }
+
+        if (sendAfterParam != null) {
+            this.sendAfter = Integer.parseInt(sendAfterParam);
+        }
 
         this.modules = Arrays.asList(modulesParam.split(","));
-        this.project = System.getenv("MINDSIGHT_PROJECT");
-        this.agentURL = System.getenv("MINDSIGHT_AGENT");
+        this.agentURL = String.format("%s/samples/?project=%s", this.agentRoot, this.project);
     }
 
-    String post(String url, String json) throws IOException {
-      RequestBody body = RequestBody.create(JSON, json);
-      Request request = new Request.Builder()
-          .url(url)
-          .post(body)
-          .build();
-      try (Response response = client.newCall(request).execute()) {
-        return response.body().string();
-      }
+    private void sendIfFull() {
+        if (this.numCached < this.sendAfter) {
+            return;
+        }
+
+        String jsonText = "";
+
+        try {
+            jsonText = JsonUtils.serialize(this.samples);
+        } catch (RuntimeException e) {
+            System.out.println("Error serializing Mindsight stats to JSON: " + e);
+            return;
+        }
+
+        RequestBody body = RequestBody.create(JSON, jsonText);
+        Request request = new Request.Builder()
+            .url(this.agentURL)
+            .post(body)
+            .build();
+        try (Response response = this.client.newCall(request).execute()) {
+            this.numCached = 0;
+        } catch (IOException e) {
+            System.out.println("Error sending stats to Mindsight agent: " + e);
+        }
+    }
+
+    private boolean recordedSample(String fn) {
+        boolean match = false;
+
+        for (String mod: this.modules) {
+            if (fn.startsWith(mod)) {
+                match = true;
+                break;
+            }
+        }
+
+        if (!match) {
+            return false;
+        }
+
+        Integer tally = this.samples.get(fn);
+        if (tally == null) {
+            tally = 1;
+        } else {
+            tally += 1;
+        }
+
+        this.samples.put(fn, tally);
+        this.numCached++;
+        return true;
     }
 
     @Override
@@ -54,37 +113,17 @@ public class JavaClient implements Reporter {
 
         List<String> trace = (List<String>) val;
 
-        stacktrace:
         for (String fn: trace) {
-            for (String mod: this.modules) {
-                if (fn.startsWith(mod)) {
-                    System.out.println(fn);
-                    break stacktrace;
-                }
+            if (this.recordedSample(fn)) {
+                this.sendIfFull();
+                break;
             }
         }
     }
 
     @Override
     public void close() {
-    }
-
-    String bowlingJson(String player1, String player2) {
-        return "{'winCondition':'HIGH_SCORE',"
-            + "'name':'Bowling',"
-            + "'round':4,"
-            + "'lastSaved':1367702411696,"
-            + "'dateStarted':1367702378785,"
-            + "'players':["
-            + "{'name':'" + player1 + "','history':[10,8,6,7,8],'color':-13388315,'total':39},"
-            + "{'name':'" + player2 + "','history':[6,10,5,10,10],'color':-48060,'total':41}"
-            + "]}";
-    }
-
-    public static void main(String[] args) throws IOException {
-        JavaClient example = new JavaClient();
-        String json = example.bowlingJson("Jesse", "Jake");
-        String response = example.post("http://www.roundsapp.com/post", json);
-        System.out.println(response);
+        this.sendAfter = 1; // flush any stats we might have
+        this.sendIfFull();
     }
 }
