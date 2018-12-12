@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 
 import com.uber.profiling.Reporter;
 import com.uber.profiling.util.JsonUtils;
@@ -19,6 +21,7 @@ public class JavaClient implements Reporter {
     OkHttpClient client = new OkHttpClient();
 
     private List<String> modules;
+    private Set<String> entryPoints = new HashSet<String>();
     private String project;
     private String agentRoot;
     private String agentURL;
@@ -28,6 +31,7 @@ public class JavaClient implements Reporter {
 
     public JavaClient() {
         String modulesParam = System.getenv("MINDSIGHT_MODULES");
+        String entryPointsParam = System.getenv("MINDSIGHT_ENTRY_POINTS");
         String sendAfterParam = System.getenv("MINDSIGHT_SEND_AFTER");
         this.project = System.getenv("MINDSIGHT_PROJECT");
         this.agentRoot = System.getenv("MINDSIGHT_AGENT");
@@ -42,6 +46,12 @@ public class JavaClient implements Reporter {
 
         if (sendAfterParam != null) {
             this.sendAfter = Integer.parseInt(sendAfterParam);
+        }
+
+        if (entryPointsParam != null) {
+            for (String e: entryPointsParam.split(",")) {
+                this.entryPoints.add(e);
+            }
         }
 
         this.modules = Arrays.asList(modulesParam.split(","));
@@ -75,6 +85,10 @@ public class JavaClient implements Reporter {
     }
 
     private boolean recordedSample(String fn) {
+        if (this.entryPoints.contains(fn)) {
+            return true; // for now just ignore counting the entry points
+        }
+
         boolean match = false;
 
         for (String mod: this.modules) {
